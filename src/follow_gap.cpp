@@ -37,7 +37,7 @@ const double desired_eta = 100;
 const uint8_t num_readings = 120;
 uint8_t laser_frequency = 20;
 float ranges2[num_readings];
-
+int Final_Angle=0;
 void Lidar_callback(const sensor_msgs::LaserScan::ConstPtr& msg){
 // Position estimation by using a Lidar
 //  0 : no obstacle
@@ -159,26 +159,40 @@ void Lidar_callback(const sensor_msgs::LaserScan::ConstPtr& msg){
     //start num --> Vector(angle num)
     //Angle of obstacle and cleanrance
     //Clearance num + Obstacle num 
-    vector<int> C_PI;
-    int Max_C_PI=0;
-    int Now_C_PI=0;
-    int Max_C_PI_Num=0;
+    vector<int> GapAngle;
+    vector<int> FinalAngle;
+    int Now_FinalAngle=0;
+    int Max_FinalAngle=0;
+    int Now_GapAngle=0;
+    int Max_GapAngle_Num=0;
+    int Min_Distance=0;
+    float Gain_GapAngle = 1;
+    float Gain_GoalAngle=1;
+    float GoalAngle=0;
     for(int i=0; i<Clearance_StartAngle.size(); i++)
     {
-        Now_C_PI = Clearance_EndAngle[i] - Clearance_StartAngle[i];
-        C_PI.push_back(Now_C_PI);
-        if(Max_C_PI<Now_C_PI)
-            Max_C_PI = Now_C_PI;
+        if(Distance_of_Clearance_end[Clearance_EndAngle[i]] > Distance_of_Clearance_start[Clearance_StartAngle[i]])
+            Min_Distance = Distance_of_Clearance_start[Clearance_StartAngle[i]];
+        else
+            Min_Distance = Distance_of_Clearance_end[Clearance_EndAngle[i]]; // how do robot when approach to zero 
+        Now_GapAngle = Clearance_EndAngle[i] - Clearance_StartAngle[i];
+        GapAngle.push_back(Now_GapAngle);
+        Now_FinalAngle = (Gain_GapAngle/Min_Distance*Now_GapAngle+Gain_GoalAngle*GoalAngle)/(Gain_GapAngle/Min_Distance+Gain_GoalAngle);
+        FinalAngle.push_back(Now_FinalAngle);
+        if(Max_FinalAngle<Now_FinalAngle)
+            Max_FinalAngle = Now_FinalAngle;
     }
-    if(find(C_PI.begin(),C_PI.end(), Max_C_PI)){
-        Max_C_PI_Num = find(C_PI.begin(), C_PI.end(), Max_C_PI) - C_PI.begin();
-    }
-    float Gain_PI = 1;
-    float Gain_GoalPI=1;
-    //ranges2[Clearance_StartAngle[Max_C_PI_Num]]
+    if(find(FinalAngle.begin(),FinalAngle.end(), Max_FinalAngle)){
+        Max_GapAngle_Num = find(FinalAngle.begin(), FinalAngle.end(), Max_FinalAngle) - FinalAngle.begin();
+    //}or SORT -> 0th index 
+    FinalAngle[Max_GapAngle_Num]
+    //Known GapAngle Num, Max_GapAngle, obstacle distance
+    
+
+    //ranges2[Clearance_StartAngle[Max_GapAngle_Num]]
 
 }
-void Control_Robot(const Eigen::Vector3f& Local_Position,float& ranges)//차이 알아보기
+void Control_Robot(const Eigen::Vector3f& Local_Position,float& ranges,int& DesiredAngle)//차이 알아보기
 {
     Eigen::Vector3f Desired_Position;
     Eigen::Vector3f PositionError;
