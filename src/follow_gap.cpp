@@ -1,4 +1,5 @@
 #include<vector>
+#include<tf/tf.h>
 #include <ros/ros.h>
 #include <Eigen/Core>
 #include <geometry_msgs/PoseStamped.h>
@@ -21,15 +22,9 @@ void handling(sig_atomic_t)
 //===================ROS Variable==================================
 mavros_msgs::State current_state;
 sensor_msgs::LaserScan ds_data;
-geometry_msgs::PoseStamped local_pos;
-
-void state_callback(const mavros_msgs::State::ConstPtr& msg){
-    current_state = *msg;
-}
-void pose_callback(const geometry_msgs::PoseStamped::ConstPtr& msg)
-{
-    local_pos = *msg;
-}
+geometry_msgs::PoseStamped LocalPosition;
+sensor_msgs::Imu imu_data;
+double roll, pitch, yaw;
 //===================Obstacle avoidance Variable===================
 const int Max_distance=6000;
 const int smallestDistanceSaturation=1500;
@@ -37,7 +32,24 @@ const double desired_eta = 100;
 const uint8_t num_readings = 120;
 uint8_t laser_frequency = 20;
 float ranges2[num_readings];
-int Final_Angle=0;
+float Final_Angle=0;
+//=================================================================
+void state_callback(const mavros_msgs::State::ConstPtr& msg){
+    current_state = *msg;
+}
+void pose_callback(const geometry_msgs::PoseStamped::ConstPtr& msg)
+{
+    local_pos = *msg;
+}
+void imu_callback(const sensor_msgs::Imu::ConstPtr& msg)
+{
+    imu_data = *msg;
+    tf::Quaternion q(imu_data.orientation.x, imu_data.orientation.y, imu_data.orientation.z, imu_data.orientation.w);
+    tf::Matrix3x3 m(q);
+    
+    m.getRPY(roll, pitch, yaw);
+}
+
 void Lidar_callback(const sensor_msgs::LaserScan::ConstPtr& msg){
 // Position estimation by using a Lidar
 //  0 : no obstacle
@@ -160,9 +172,9 @@ void Lidar_callback(const sensor_msgs::LaserScan::ConstPtr& msg){
     //Angle of obstacle and cleanrance
     //Clearance num + Obstacle num 
     vector<int> GapAngle;
-    vector<int> FinalAngle;
-    int Now_FinalAngle=0;
-    int Max_FinalAngle=0;
+    vector<double> FinalAngle;
+    double Now_FinalAngle=0.0;
+    double Max_FinalAngle=0.0;
     int Now_GapAngle=0;
     int Max_GapAngle_Num=0;
     int Min_Distance=0;
@@ -185,22 +197,25 @@ void Lidar_callback(const sensor_msgs::LaserScan::ConstPtr& msg){
     if(find(FinalAngle.begin(),FinalAngle.end(), Max_FinalAngle)){
         Max_GapAngle_Num = find(FinalAngle.begin(), FinalAngle.end(), Max_FinalAngle) - FinalAngle.begin();
     //}or SORT -> 0th index 
-    FinalAngle[Max_GapAngle_Num]
+    Final_Angle = FinalAngle[Max_GapAngle_Num];
     //Known GapAngle Num, Max_GapAngle, obstacle distance
     
 
     //ranges2[Clearance_StartAngle[Max_GapAngle_Num]]
 
 }
-void Control_Robot(const Eigen::Vector3f& Local_Position,float& ranges,int& DesiredAngle)//차이 알아보기
+geometry_msgs::Twist Control_Robot(const Eigen::Vector3f& Local_Position)//차이 알아보기
 {
+    geometry_msgs::Twist cmd_vel;
     Eigen::Vector3f Desired_Position;
     Eigen::Vector3f PositionError;
     Eigen::Vector3f AttractiveForce;
     Eigen::Vector3f RuepulsiveForce;
     float K_att = 0.5;
     float K_rep = 0.5;
-    float Distance;
+    float Distance=0;
+    float DesiredYaw=0;
+    float YawError=0;
     Desired_Position << 10,0,3;
     //norm --> Local_Position.norm()
     PositionError = Desired_Position - Local_Position;
@@ -208,10 +223,14 @@ void Control_Robot(const Eigen::Vector3f& Local_Position,float& ranges,int& Desi
     AttractiveForce(0) = (Desired_Position(0) - Local_Position(0))/Distance;
     AttractiveForce(1) = (Desired_Position(1) - Local_Position(1))/Distance;
     AttractiveForce(2) = Desired_Position(2) - Local_Position(2);
-
-    for(int i=0; i<num_readings; i++){
-
-    }
+    
+    DesiredYaw=atan2(PositionError(1),PositionError(0));
+    YawError = DesiredYaw - yaw;
+    cmd_vel.linear.x = AttractiveForce(0);
+    cmd_vel.linear.y = AttractiveForce(1);
+    cmd_vel.linear.z = AttractiveForce(2);
+    cmd_vel.angular.z=0.2*YawError
+    return cmd_vel;
 }
 int main(int argc, char **argv)
 {
@@ -224,9 +243,11 @@ int main(int argc, char **argv)
             ("mavros/state", 10, state_callback);
     ros::Subscriber pose_sub = nh.subscribe<geometry_msgs::PoseStamped>
             ("mavros/local_position/pose", 20, pose_callback);
+    ros::Subscriber imu_sub = nh.subscribe<sensor_msgs::Imu>
+            ("mavros/imu/data", 20, imu_callback);
     //ros::Publisher local_pos_pub = nh.advertise<geometry_msgs::PoseStamped>
     //        ("mavros/setpoint_position/local", 10);
-    ros::Publisher local_vel_pub = nh.advertise<geometry_msgs::Twist>
+    ros::Publisher Velocity_Publisher = nh.advertise<geometry_msgs::Twist>
             ("mavros/setpoint_velocity/cmd_vel_unstamped",20);
     ros::Rate rate(20.0);
     ros::Time last_request = ros::Time::now();
@@ -248,8 +269,9 @@ int main(int argc, char **argv)
     geometry_msgs::Twist cmd_vel;    
     signal(SIGINT,handling);
     while(ros::ok()){
+        cmd_vel = Control_Robot(LocalPosition);
+        Velocity_Publisher.publish()
         
-    
 
         
         ros::spinOnce();
