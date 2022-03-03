@@ -9,6 +9,7 @@
 #include <mavros_msgs/State.h>
 #include "sensor_msgs/LaserScan.h"
 #include <sensor_msgs/PointCloud.h>
+#include <sensor_msgs/Imu.h>
 #include <signal.h>
 #include <memory.h>
 #define _USE_MATH_DEFINES
@@ -20,6 +21,7 @@ void handling(sig_atomic_t)
     exit(1);
 }
 //===================ROS Variable==================================
+geometry_msgs::Twist cmd_vel;
 mavros_msgs::State current_state;
 sensor_msgs::LaserScan ds_data;
 geometry_msgs::PoseStamped LocalPosition;
@@ -39,7 +41,7 @@ void state_callback(const mavros_msgs::State::ConstPtr& msg){
 }
 void pose_callback(const geometry_msgs::PoseStamped::ConstPtr& msg)
 {
-    local_pos = *msg;
+    LocalPosition = *msg;
 }
 void imu_callback(const sensor_msgs::Imu::ConstPtr& msg)
 {
@@ -119,11 +121,15 @@ void Lidar_callback(const sensor_msgs::LaserScan::ConstPtr& msg){
     {
         uint8_t Obstacle_Points = 0;
         if(ranges2[i] < Max_distance)
+        {
             Obstacle_flag = 1;
             Clearance_flag = 0;
+        }
         else
+        {
             Obstacle_flag = 0;
             Clearance_flag = 1;
+        }
         if((Obstacle_flag == 1) && (Obstacle_flag_pre == 0))
         {
             
@@ -194,7 +200,7 @@ void Lidar_callback(const sensor_msgs::LaserScan::ConstPtr& msg){
         if(Max_FinalAngle<Now_FinalAngle)
             Max_FinalAngle = Now_FinalAngle;
     }
-    if(find(FinalAngle.begin(),FinalAngle.end(), Max_FinalAngle)){
+    if(find(FinalAngle.begin(),FinalAngle.end(), Max_FinalAngle) != FinalAngle.end())
         Max_GapAngle_Num = find(FinalAngle.begin(), FinalAngle.end(), Max_FinalAngle) - FinalAngle.begin();
     //}or SORT -> 0th index 
     Final_Angle = FinalAngle[Max_GapAngle_Num];
@@ -204,9 +210,9 @@ void Lidar_callback(const sensor_msgs::LaserScan::ConstPtr& msg){
     //ranges2[Clearance_StartAngle[Max_GapAngle_Num]]
 
 }
-geometry_msgs::Twist Control_Robot(const Eigen::Vector3f& Local_Position)//차이 알아보기
+void Control_Robot()//차이 알아보기
 {
-    geometry_msgs::Twist cmd_vel;
+    
     Eigen::Vector3f Desired_Position;
     Eigen::Vector3f PositionError;
     Eigen::Vector3f AttractiveForce;
@@ -218,23 +224,25 @@ geometry_msgs::Twist Control_Robot(const Eigen::Vector3f& Local_Position)//차�
     float YawError=0;
     Desired_Position << 10,0,3;
     //norm --> Local_Position.norm()
-    PositionError = Desired_Position - Local_Position;
+    PositionError(0) = (Desired_Position(0) - LocalPosition.pose.position.x);
+    PositionError(1) = (Desired_Position(1) - LocalPosition.pose.position.y);
+    PositionError(2) = (Desired_Position(2) - LocalPosition.pose.position.z);
     Distance = sqrt(pow(PositionError(0),2)+pow(PositionError(1),2));
-    AttractiveForce(0) = (Desired_Position(0) - Local_Position(0))/Distance;
-    AttractiveForce(1) = (Desired_Position(1) - Local_Position(1))/Distance;
-    AttractiveForce(2) = Desired_Position(2) - Local_Position(2);
+    AttractiveForce(0) = PositionError(0)/Distance;
+    AttractiveForce(1) = PositionError(1)/Distance;
+    AttractiveForce(2) = PositionError(2);
     
     DesiredYaw=atan2(PositionError(1),PositionError(0));
     YawError = DesiredYaw - yaw;
     cmd_vel.linear.x = AttractiveForce(0);
     cmd_vel.linear.y = AttractiveForce(1);
     cmd_vel.linear.z = AttractiveForce(2);
-    cmd_vel.angular.z=0.2*YawError
-    return cmd_vel;
+    cmd_vel.angular.z=0.2*YawError;
+    
 }
 int main(int argc, char **argv)
 {
-    ros::init(argc, argv, "offb_node",ros::init_options::NoSigintHandler);
+    ros::init(argc, argv, "follow_gap",ros::init_options::NoSigintHandler);
     ros::NodeHandle nh;
     //ros::Publisher scan_pub = nh.advertise<sensor_msgs::LaserScan>("obs_data", 20);
     ros::Subscriber distance_sub = nh.subscribe<sensor_msgs::LaserScan>
@@ -256,21 +264,20 @@ int main(int argc, char **argv)
 
     int count=0;
 
-    float F_att_x, F_att_y,F_att_z;
-    float F_rep_x, F_rep_y;
+    // float F_att_x, F_att_y,F_att_z;
+    // float F_rep_x, F_rep_y;
 
-    float desired_pos_x=10;
-    float desired_pos_y=1;
-    float desired_pos_z=6;
+    // float desired_pos_x=10;
+    // float desired_pos_y=1;
+    // float desired_pos_z=6;
 
-    float obs_pos_x, obs_pos_y;
+    // float obs_pos_x, obs_pos_y;
     
     geometry_msgs::PoseStamped pose;
-    geometry_msgs::Twist cmd_vel;    
     signal(SIGINT,handling);
     while(ros::ok()){
-        cmd_vel = Control_Robot(LocalPosition);
-        Velocity_Publisher.publish()
+        Control_Robot();
+        Velocity_Publisher.publish(cmd_vel);
         
 
         
