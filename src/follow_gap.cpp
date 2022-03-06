@@ -160,7 +160,8 @@ void Lidar_callback(const sensor_msgs::LaserScan::ConstPtr& msg){
         {
             // ROS_INFO("Obstacle Start, %d", i);
             // ROS_INFO("Obstacle StartPoint: %d",i);
-            //Obstacles_StartAngle.push_back(i);
+            if(i<119)
+            Obstacle_StartAngle.push_back(i);
             //Obstacle_point_start[i] = i; // start point pos
             Distance_of_Obstacle[i]=ranges2[i]; // distance to start point
             Num_of_obstacle_point[i] = Num_of_obstacle_point[i] + 1; //
@@ -175,13 +176,14 @@ void Lidar_callback(const sensor_msgs::LaserScan::ConstPtr& msg){
             {
                 // ROS_INFO("Obstacle EndPoint: %d",i);
                 //Obstacle_point_end[i] = i;// * 0.25 - 60;	// Obstacle Ending Point
+                Obstacle_EndAngle.push_back(i);
                 Distance_of_Obstacle[i] = ranges2[i];///////////////////////////////////////////////////////
                 //i++;	// Obstacle_point : the number of obstacle points
             }
         }
         else if((Obstacle_flag == 0) && (Obstacle_flag_pre == 1))
         {
-            //Obstacle_EndAngle.push_back(i);
+            Obstacle_EndAngle.push_back(i);
             // ROS_INFO("Obstacle End, %d",i);
             // ROS_INFO("Obstacle End Clearance Flag=%d, %d",Clearance_flag,Clearance_flag_pre);
             
@@ -249,9 +251,18 @@ void Lidar_callback(const sensor_msgs::LaserScan::ConstPtr& msg){
     int Max_GapAngle_Num=0;
     float Min_Distance=6000.0;
     float Now_Distance=0;
-    float Gain_GapAngle = 8;
+    float Gain_GapAngle = 10;
     float Gain_GoalAngle= 1;
-    float GoalAngle=DesiredYaw;//atan2f(DesiredPosition_y,DesiredPosition_x);
+    float GoalAngle=atan2f(DesiredPosition_y-LocalPosition.pose.position.y,DesiredPosition_x-LocalPosition.pose.position.x);//DesiredYaw;//atan2f(DesiredPosition_y,DesiredPosition_x);World 기준 Angle
+    //Desired_Position(0) = Desired_Position(0)*cosf(Final_Angle)-Desired_Position(1)*sinf(Final_Angle);
+    //Desired_Position(1) = Desired_Position(0)*sinf(Final_Angle)+Desired_Position(1)*cosf(Final_Angle);
+    //float GoalAngle=DesiredYaw;//
+    // if(GoalAngle>M_PI)
+    //     GoalAngle=GoalAngle-(M_PI*2);
+    // else if (GoalAngle<-M_PI)
+    //     GoalAngle=GoalAngle+(M_PI*2);
+    // else
+    //     GoalAngle=GoalAngle;
     ROS_INFO("size: %d",Clearance_StartAngle.size());
     if(Clearance_StartAngle.size()>0)
     {
@@ -306,16 +317,36 @@ void Lidar_callback(const sensor_msgs::LaserScan::ConstPtr& msg){
         Max_GapAngle_Num = find(GapAngle.begin(), GapAngle.end(), Max_GapAngle) - GapAngle.begin();
     ROS_INFO("Error Check3");
     //must be modified !!!##################################
-    // for(int i=Clearance_StartAngle[Max_GapAngle_Num]; i<Clearance_EndAngle[Max_GapAngle_Num]; i++)
-    // {
-    //     if(Min_Distance>Distance_of_Obstacle[i]){
-    //         Min_Distance=Distance_of_Obstacle[i];
-    //     }
-    // }
-    Min_Distance = MinDistance[Max_GapAngle_Num];
-    Min_Distance=Min_Distance/2000.0;
+    if(Obstacle_StartAngle.size()>0)
+    {
+        for(int i=0; i<Obstacle_StartAngle.size(); i++)
+        {
+            ROS_INFO("Error Check4 size: %d",Obstacle_StartAngle.size());
+            for(int j=Obstacle_StartAngle[i]; j<Obstacle_EndAngle[i]; j++)
+            {
+                //ROS_INFO("Error Check5 : %f", );
+                if(Min_Distance>Distance_of_Obstacle[j])
+                {
+                    ROS_INFO("Error Check6");
+                Min_Distance=Distance_of_Obstacle[j];
+                ROS_INFO("Error Check7 angle: %d, dist:%f ",j,Min_Distance);
+                }
+            }
+        }
+    }
+    //Min_Distance = MinDistance[Max_GapAngle_Num];
+    if(Min_Distance<6000.0)
+        Min_Distance=Min_Distance-1000.0;
+    Min_Distance=(Min_Distance)/1000.0;
     ROS_INFO("Min_Distance: %f",Min_Distance);
-    Max_GapAngle = GapAngle[Max_GapAngle_Num]+(Clearance_StartAngle[Max_GapAngle_Num]-60+(yaw*180.0/M_PI));
+    double HeadingAngle = (yaw*180.0/M_PI);
+    // if(HeadingAngle>180.0)
+    //     HeadingAngle=HeadingAngle-(180.0*2);
+    // else if (HeadingAngle<-180.0)
+    //     HeadingAngle=HeadingAngle+(180.0*2);
+    // else
+    //     HeadingAngle=HeadingAngle;
+    Max_GapAngle = GapAngle[Max_GapAngle_Num]+(Clearance_StartAngle[Max_GapAngle_Num]-60+HeadingAngle);
     Max_GapAngle = Max_GapAngle*M_PI/180.0;
     Final_Angle = ((Gain_GapAngle/Min_Distance*Max_GapAngle)+(Gain_GoalAngle*GoalAngle)) / ((Gain_GapAngle/Min_Distance)+Gain_GoalAngle);
         
@@ -325,6 +356,7 @@ void Lidar_callback(const sensor_msgs::LaserScan::ConstPtr& msg){
     //Final_Angle = FinalAngle[Max_GapAngle_Num];
     ROS_INFO("Gap Angle: %f, Min_Distance: %f",Max_GapAngle*180.0/M_PI,Min_Distance);
     ROS_INFO("GoalAngle: %f Final_Angle: %f Heading: %f", GoalAngle*180.0/M_PI,Final_Angle*180.0/M_PI, yaw*180.0/M_PI);
+    ROS_INFO("LocalPosition x:%f y:%f z:%f ",LocalPosition.pose.position.x,LocalPosition.pose.position.y,LocalPosition.pose.position.z);
     //Known GapAngle Num, Max_GapAngle, obstacle distance
     }
 
@@ -338,7 +370,7 @@ void Control_Robot()//차이 알아보기
     Eigen::Vector3f PositionError;
     Eigen::Vector3f AttractiveForce;
     Eigen::Vector3f RuepulsiveForce;
-    float K_att = 0.2;
+    float K_att = 0.1;
     float K_rep = 0.01;
     float Distance=0;
     
@@ -348,23 +380,25 @@ void Control_Robot()//차이 알아보기
     //norm --> Local_Position.norm()
     Final_Angle = Final_Angle;
     YawError = (Final_Angle - yaw);
-    Desired_Position(0) = Desired_Position(0)*cosf(Final_Angle)-Desired_Position(1)*sinf(Final_Angle);
-    Desired_Position(1) = Desired_Position(0)*sinf(Final_Angle)+Desired_Position(1)*cosf(Final_Angle);
+    //Desired_Position(0) = Desired_Position(0)*cosf(Final_Angle)-Desired_Position(1)*sinf(Final_Angle);
+    //Desired_Position(1) = Desired_Position(0)*sinf(Final_Angle)+Desired_Position(1)*cosf(Final_Angle);
     PositionError(0) = (Desired_Position(0) - LocalPosition.pose.position.x);
     PositionError(1) = (Desired_Position(1) - LocalPosition.pose.position.y);
     PositionError(2) = (Desired_Position(2) - LocalPosition.pose.position.z);
     DesiredYaw=atan2f(PositionError(1),PositionError(0));
     Distance = sqrt(pow(PositionError(0),2)+pow(PositionError(1),2));
-    AttractiveForce(0) = K_att*PositionError(0)/Distance;
+    AttractiveForce(0) = (K_att+0.1)*PositionError(0)/Distance;
     AttractiveForce(1) = K_att*PositionError(1)/Distance;
     AttractiveForce(2) = 0.5*PositionError(2);
-    DesiredYaw = (DesiredYaw-yaw);
+    //DesiredYaw = (DesiredYaw-yaw);
 
-    //ROS_INFO("Yaw: %f",yaw*180.0/M_PI);
+    ROS_INFO("Position Error: %f, %f",PositionError(0),PositionError(1));
     //ROS_INFO("LocalPosition x:%f y:%f z:%f ",LocalPosition.pose.position.x,LocalPosition.pose.position.y,LocalPosition.pose.position.z);
     if(PositionError(2)<0.3){
-    cmd_vel.linear.x = AttractiveForce(0);
-    cmd_vel.linear.y = AttractiveForce(1);
+    cmd_vel.linear.x = AttractiveForce(0)*cosf(Final_Angle)-AttractiveForce(1)*sinf(Final_Angle);
+    cmd_vel.linear.y = AttractiveForce(0)*sinf(Final_Angle)+AttractiveForce(1)*cosf(Final_Angle);
+    //cmd_vel.linear.x = AttractiveForce(0);
+    //cmd_vel.linear.y = AttractiveForce(1);
     }
     cmd_vel.linear.z = AttractiveForce(2);
     cmd_vel.angular.z=0.5*YawError;
