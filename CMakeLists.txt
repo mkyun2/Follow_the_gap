@@ -10,6 +10,8 @@ project(follow_gap)
 find_package(catkin REQUIRED COMPONENTS
   roscpp
   rospy
+  pcl_conversions
+  pcl_ros
   std_msgs
   sensor_msgs
 )
@@ -143,7 +145,8 @@ include_directories(
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
 add_executable(follow_gap src/follow_gap.cpp)
-
+add_executable(FollowGap src/FollowGap.cpp)
+target_link_libraries(FollowGap ${catkin_LIBRARIES})
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
 ## target back to the shorter version for ease of user use

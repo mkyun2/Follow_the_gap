@@ -1,6 +1,9 @@
 #include <iostream>
 #include <vector>
-
+#include <sensor_msgs/PointCloud2.h>
+#include <pcl_conversions/pcl_conversions.h>
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
 #include <tf/tf.h>
 #include <ros/ros.h>
 #include <Eigen/Core>
@@ -28,6 +31,8 @@ geometry_msgs::PoseStamped LocalPosition;
 sensor_msgs::Imu imu_data;
 double roll, pitch, yaw = 0;
 //===================Obstacle avoidance Variable===================
+Eigen::Matrix3f RotationMatrix = Eigen::Matrix3f::Identity();
+
 float DesiredPosition_x =10;
 float DesiredPosition_y =0;
 float DesiredPosition_z =3;
@@ -39,9 +44,31 @@ const int laser_frequency = 20;
 double ranges2[num_readings]={0.0};
 float Final_Angle=0;
 float DesiredYaw=0;
+float InitYaw=0;
 //=================================================================
 Eigen::Vector3f Local_Position;
+Eigen::Vector3f Desired_PositionOg(DesiredPosition_x,DesiredPosition_y,DesiredPosition_z);
 Eigen::Vector3f Desired_Position;
+void Pcl_Callback(const sensor_msgs::PointCloud2ConstPtr& msg)
+{
+    float PointAngle;
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>());
+    pcl::fromROSMsg(*msg,*cloud);
+    ROS_INFO("Point size: %d",cloud->points.size());
+
+    for(int i = 0; i<cloud->points.size()-1; i++)
+    {
+        if(abs(cloud->points[i].z)<0.1)
+        {
+            PointAngle = atan2f(cloud->points[i].x,cloud->points[i].y)*180.0/M_PI;
+            if(PointAngle>30.0 & PointAngle < 150.0)
+            {
+                ranges2[abs((int)PointAngle-30)]= sqrt(pow(cloud->points[i].x,2)+pow(cloud->points[i].y,2));
+                ROS_INFO("Angle: %d, Dist:%f",abs((int)PointAngle-30),ranges2[abs((int)PointAngle-30)]);
+            }
+        }
+    }
+}
 void state_callback(const mavros_msgs::State::ConstPtr& msg){
     current_state = *msg;
 }
@@ -400,13 +427,23 @@ void Control_Robot()//차이 알아보기
     Eigen::Vector3f PositionError;
     Eigen::Vector3f AttractiveForce;
     Eigen::Vector3f RuepulsiveForce;
+    if(current_state.mode !="OFFBOARD")
+{
+    InitYaw = yaw;
+    RotationMatrix(0,0) = cos(InitYaw);
+    RotationMatrix(0,1) = -sin(InitYaw);
+    RotationMatrix(1,0) = sin(InitYaw);
+    RotationMatrix(1,1) = cos(InitYaw);
+}
+    Desired_Position << DesiredPosition_x,DesiredPosition_y,DesiredPosition_z;
+    Local_Position << LocalPosition.pose.position.x,LocalPosition.pose.position.y,LocalPosition.pose.position.z;
+    Desired_Position << RotationMatrix*Desired_Position;
     float K_att = 0.3;
     float K_rep = 0.01;
     float Distance=0;
     
     float YawError=0;
-    Desired_Position << DesiredPosition_x,DesiredPosition_y,DesiredPosition_z;
-    Local_Position << LocalPosition.pose.position.x,LocalPosition.pose.position.y,LocalPosition.pose.position.z;
+
     //norm --> Local_Position.norm()
     
     YawError = (Final_Angle - yaw);
@@ -452,6 +489,8 @@ int main(int argc, char **argv)
             ("mavros/local_position/pose", 20, pose_callback);
     ros::Subscriber imu_sub = nh.subscribe<sensor_msgs::Imu>
             ("mavros/imu/data", 20, imu_callback);
+    ros::Subscriber PclSub = nh.subscribe<sensor_msgs::PointCloud2>
+            ("os_cloud_node/points",10,Pcl_Callback);
     //ros::Publisher local_pos_pub = nh.advertise<geometry_msgs::PoseStamped>
     //        ("mavros/setpoint_position/local", 10);
     ros::Publisher Velocity_Publisher = nh.advertise<geometry_msgs::Twist>
